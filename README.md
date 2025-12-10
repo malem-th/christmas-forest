@@ -18,4 +18,7 @@ It’s basically a cozy, looping Christmas forest right inside your terminal.
 
 # ▶️ How to run it
 
-Just clone/download the repo and run the script
+Run the script:
+git clone https://github.com/malem-th/christmas-forest.git
+cd christmas-forest
+python christmas_forest.py
