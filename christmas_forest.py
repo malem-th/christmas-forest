@@ -1,9 +1,10 @@
 import sys
 import time
 import random
-import shutil  # for terminal size
+import shutil  # to get terminal width/height
 
-# ----- Base tree (medium template) -----
+
+# Base tree (medium size). We'll derive small/large from this.
 BASE_TREE = [
     "        *        ",
     "       ***       ",
@@ -17,17 +18,16 @@ BASE_TREE = [
     "       |||       ",
 ]
 
-BASE_HEIGHT = len(BASE_TREE)
 BASE_WIDTH = len(BASE_TREE[0])
 
 # Colors
 COLORS = [
-    "\033[31m",  # Red
-    "\033[32m",  # Green
-    "\033[33m",  # Yellow
-    "\033[34m",  # Blue
-    "\033[35m",  # Magenta
-    "\033[36m",  # Cyan
+    "\033[31m",  # red
+    "\033[32m",  # green
+    "\033[33m",  # yellow
+    "\033[34m",  # blue
+    "\033[35m",  # magenta
+    "\033[36m",  # cyan
 ]
 
 STAR_BRIGHT = "\033[93m"
@@ -36,137 +36,130 @@ TRUNK_COLOR = "\033[33m"
 SNOW_COLOR = "\033[97m"
 RESET = "\033[0m"
 
-# Screen / layout globals
-TERM_W = 80
-TERM_H = 24
+# These will be filled at runtime
+term_w = 80
+term_h = 24
+tree_band_height = len(BASE_TREE)
+tree_top = 0          # first row where trees start
+trees = []            # list of dicts: {"x": int, "lines": [str], "height": int}
 
-TREE_BAND_HEIGHT = BASE_HEIGHT   # updated after trees are created
-TREE_TOP = 0
-TREES = []  # list of dicts: {x, lines, height, width}
-
-# Snow: simple vertical fall
-snowflakes = []
+snowflakes = []       # list of {"r": row, "c": col}
 
 
-# ----- Tree size variations -----
 def make_small_tree():
-    """Smaller tree by skipping some foliage rows."""
+    """Smaller tree by keeping fewer foliage rows."""
     idx = [0, 2, 4, 6, 8, 9]  # star + some foliage + trunk
     return [BASE_TREE[i] for i in idx]
 
 
 def make_medium_tree():
-    return list(BASE_TREE)
+    return BASE_TREE[:]   # shallow copy
 
 
 def make_large_tree():
-    """Taller tree by duplicating some lower foliage rows."""
-    idx = [0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 8, 9]  # duplicate rows 3 & 4
+    """Slightly taller tree by duplicating some of the lower rows."""
+    idx = [0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 8, 9]
     return [BASE_TREE[i] for i in idx]
 
 
-def random_tree_lines():
-    size_type = random.choice(["small", "medium", "large"])
-    if size_type == "small":
+def random_tree():
+    """Return a random-sized tree (lines list)."""
+    size = random.choice(["small", "medium", "large"])
+    if size == "small":
         return make_small_tree()
-    elif size_type == "large":
+    if size == "large":
         return make_large_tree()
-    else:
-        return make_medium_tree()
+    return make_medium_tree()
 
 
-# ----- Setup layout -----
-def setup():
-    global TERM_W, TERM_H, TREE_TOP, TREE_BAND_HEIGHT, TREES
+def setup_layout():
+    """Figure out terminal size and where to put trees."""
+    global term_w, term_h, tree_top, tree_band_height, trees
 
     size = shutil.get_terminal_size()
-    TERM_W = size.columns
-    TERM_H = size.lines
+    term_w = size.columns
+    term_h = size.lines
 
+    # how many trees can we fit in a row?
     spacing = 4
-    max_trees = max(1, (TERM_W + spacing) // (BASE_WIDTH + spacing))
+    max_trees = max(1, (term_w + spacing) // (BASE_WIDTH + spacing))
 
-    total_band_width = max_trees * BASE_WIDTH + (max_trees - 1) * spacing
-    left_margin = max(0, (TERM_W - total_band_width) // 2)
+    total_width = max_trees * BASE_WIDTH + (max_trees - 1) * spacing
+    left_margin = max(0, (term_w - total_width) // 2)
 
-    TREES = []
+    trees = []
     for i in range(max_trees):
-        lines = random_tree_lines()
-        height = len(lines)
-        TREES.append(
-            {
-                "x": left_margin + i * (BASE_WIDTH + spacing),
-                "lines": lines,
-                "height": height,
-                "width": BASE_WIDTH,
-            }
-        )
+        lines = random_tree()
+        h = len(lines)
+        x = left_margin + i * (BASE_WIDTH + spacing)
+        trees.append({"x": x, "lines": lines, "height": h})
 
-    TREE_BAND_HEIGHT = max(t["height"] for t in TREES)
+    tree_band_height = max(t["height"] for t in trees)
 
-    if TERM_H < TREE_BAND_HEIGHT:
-        TREE_TOP = 0
+    # trees sit on the bottom of the screen
+    if term_h < tree_band_height:
+        tree_top = 0
     else:
-        TREE_TOP = TERM_H - TREE_BAND_HEIGHT
+        tree_top = term_h - tree_band_height
 
 
-# ----- Snow management (vertical only) -----
-def init_snowflakes():
-    """Initial snow density scales with screen area."""
-    area = TERM_W * TERM_H
-    count = max(area // 150, 40)
-    for _ in range(count):
-        r = random.randrange(0, TERM_H)
-        c = random.randrange(0, TERM_W)
+def init_snow():
+    """Start with some snow already on screen."""
+    area = term_w * term_h
+    target = max(area // 150, 40)
+
+    for _ in range(target):
+        r = random.randrange(0, term_h)
+        c = random.randrange(0, term_w)
         snowflakes.append({"r": r, "c": c})
 
 
-def update_snowflakes():
-    """Fall straight down, wrap at bottom."""
-    for fl in snowflakes:
-        fl["r"] += 1
-        if fl["r"] >= TERM_H:
-            fl["r"] = 0
+def update_snow():
+    """Simple vertical snowfall: move down, wrap at bottom."""
+    for flake in snowflakes:
+        flake["r"] += 1
+        if flake["r"] >= term_h:
+            flake["r"] = 0
 
-    # Spawn some new flakes near the top region
+    # add a few new flakes near the top
     for _ in range(3):
         if random.random() < 0.3:
-            r = random.randrange(0, max(TREE_TOP, 1))
-            c = random.randrange(0, TERM_W)
+            top_limit = max(tree_top, 1)
+            r = random.randrange(0, top_limit)
+            c = random.randrange(0, term_w)
             snowflakes.append({"r": r, "c": c})
 
-    # Limit overall density
-    max_flakes = max(TERM_W * TERM_H // 50, 100)
+    # keep density under control
+    max_flakes = max(term_w * term_h // 50, 100)
     if len(snowflakes) > max_flakes:
-        del snowflakes[: len(snowflakes) - max_flakes]
+        extra = len(snowflakes) - max_flakes
+        del snowflakes[0:extra]
 
 
-# ----- Tree rendering helper -----
 def get_tree_char(y, x):
     """
-    Return (char, row_in_tree, is_star) if (y,x) is part of some tree,
-    otherwise (None, None, False).
+    If (y, x) is on a tree, return (char, is_star).
+    Otherwise return (None, False).
     """
-    if y < TREE_TOP or y >= TREE_TOP + TREE_BAND_HEIGHT:
-        return None, None, False
+    if y < tree_top or y >= tree_top + tree_band_height:
+        return None, False
 
-    row_in_band = y - TREE_TOP
+    row_in_band = y - tree_top
 
-    for t in TREES:
-        tx = t["x"]
-        w = t["width"]
+    for t in trees:
+        left = t["x"]
+        width = BASE_WIDTH
 
-        if not (tx <= x < tx + w):
+        if not (left <= x < left + width):
             continue
 
-        rel_x = x - tx
+        rel_x = x - left
         h = t["height"]
         lines = t["lines"]
 
-        # align each tree at bottom of band
-        offset = TREE_BAND_HEIGHT - h
+        # bottom-align the tree in the band
+        offset = tree_band_height - h
         tree_row = row_in_band - offset
-
         if tree_row < 0 or tree_row >= h:
             continue
 
@@ -175,70 +168,72 @@ def get_tree_char(y, x):
             continue
 
         is_star = (ch == "*" and tree_row == 0)
-        return ch, tree_row, is_star
+        return ch, is_star
 
-    return None, None, False
+    return None, False
 
 
-# ----- Frame rendering -----
-def print_frame(frame):
-    snow_set = {(fl["r"], fl["c"]) for fl in snowflakes}
+def draw_frame(frame_no):
+    """Draw one full frame at the current cursor position."""
+    snow_positions = {(fl["r"], fl["c"]) for fl in snowflakes}
 
-    for y in range(TERM_H):
-        for x in range(TERM_W):
-            tree_char, tree_row, is_star = get_tree_char(y, x)
+    for y in range(term_h):
+        for x in range(term_w):
+            ch, is_star = get_tree_char(y, x)
 
-            if tree_char is not None:
+            if ch is not None:
+                # part of a tree
                 if is_star:
-                    color = STAR_BRIGHT if frame % 2 == 0 else STAR_DIM
+                    color = STAR_BRIGHT if frame_no % 2 == 0 else STAR_DIM
                     sys.stdout.write(color + "*" + RESET)
-                elif tree_char == "*":
+                elif ch == "*":
                     color = random.choice(COLORS)
                     sys.stdout.write(color + "*" + RESET)
-                elif tree_char == "|":
+                elif ch == "|":
                     sys.stdout.write(TRUNK_COLOR + "|" + RESET)
                 else:
-                    sys.stdout.write(tree_char)
+                    sys.stdout.write(ch)
             else:
-                if (y, x) in snow_set:
+                # background: maybe snow, maybe empty
+                if (y, x) in snow_positions:
                     sys.stdout.write(SNOW_COLOR + "." + RESET)
                 else:
                     sys.stdout.write(" ")
 
-        # IMPORTANT: no newline after last row to avoid scrolling
-        if y != TERM_H - 1:
+        # avoid adding a newline after the last row (helps prevent scrolling)
+        if y != term_h - 1:
             sys.stdout.write("\n")
 
     sys.stdout.flush()
 
 
-# ----- Main loop -----
 def main():
-    setup()
-    init_snowflakes()
+    setup_layout()
+    init_snow()
 
     frame = 0
 
     try:
-        # Clear screen and hide cursor
+        # clear screen and hide cursor
         sys.stdout.write("\033[2J")
-        sys.stdout.write("\033[H")       # move to top-left
-        sys.stdout.write("\033[?25l")    # hide cursor
+        sys.stdout.write("\033[H")
+        sys.stdout.write("\033[?25l")
         sys.stdout.flush()
 
         while True:
-            # Move cursor to top-left each frame, no extra lines
+            # go back to top-left and redraw everything in place
             sys.stdout.write("\033[H")
             sys.stdout.flush()
 
-            update_snowflakes()
-            print_frame(frame)
+            update_snow()
+            draw_frame(frame)
 
             time.sleep(0.15)
             frame += 1
 
     except KeyboardInterrupt:
-        sys.stdout.write("\033[?25h\n")  # show cursor again
+        # show cursor again on exit
+        sys.stdout.write("\033[?25h\n")
         sys.stdout.flush()
 
 
